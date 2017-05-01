@@ -4,7 +4,6 @@
     [clojure.data.json    :as     json   ]
     [clojure.java.io      :as     io     ])
   (:import
-    [com.amazonaws.services.lambda.runtime  RequestHandler Context LambdaLogger  ]
     [clojure.lang                           PersistentHashMap PersistentArrayMap ]
     [java.sql                               Connection DriverManager 
                                             SQLException Statement ResultSet     ]
@@ -12,8 +11,8 @@
     [java.io                                File BufferedReader                  ]
     [java.lang.management                   ManagementFactory  RuntimeMXBean     ])
   (:gen-class 
-    :implements [com.amazonaws.services.lambda.runtime.RequestHandler]
-    :methods [[handleRequest [Object com.amazonaws.services.lambda.runtime.Context] String]]))
+    :methods [^:static [handler [String] String]]))
+
 
 ;; misc
 
@@ -80,11 +79,13 @@
 (defn exec-sql 
   []
   (try 
-    (get-fst-result 
-      (execute-query 
-        (.createStatement (connect-to-db (get-jdbc-url db-prod-eu))) 
-        "SELECT NOW();"))
-  (catch Exception e (str "Exception: " (.getMessage e)))))
+    {:ok 
+      (get-fst-result 
+        (execute-query
+          (.createStatement (connect-to-db (get-jdbc-url db-prod-eu)))
+          "SELECT NOW();")) }
+  (catch Exception e
+    {:error "Exception" :fn "exec-sql" :exception (.getMessage e) })))
 
 (defn start-time 
   ^Date []
@@ -96,16 +97,19 @@
 
 (defn exec 
   []
-  (println (str "Start time :: " (start-time)))
-  (println (str "Input args :: " (get-input-args)))
-  (println (str "now :: " (.getString (exec-sql) "now"))))
+  (let [sql-ret (exec-sql)]
+    (println (str "Start time :: " (start-time)))
+    (println (str "Input args :: " (get-input-args)))
+    (cond
+      (contains? sql-ret :ok)
+        (println (str "now :: " (.getString (:ok (exec-sql)) "now")))
+    :else
+      (println (str "Error while executing SQL :: " sql-ret)))))
 
-(defn -handleRequest ^String [this in ctx]
-  (reify RequestHandler
-    (handleRequest ^String [this in ctx]
-      (let [logger (.getLogger ctx)]
-        (.log logger "Hello from logging")
-        (exec)))))
+(defn -handler 
+  [s]
+  (exec)
+  s)
 
 (defn -main 
   [& args] 

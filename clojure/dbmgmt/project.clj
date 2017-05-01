@@ -16,6 +16,7 @@
     "-Xms32m" "-Xmx32m" 
     "-XX:+TieredCompilation" "-XX:TieredStopAtLevel=1"
     "-XX:+UseSerialGC"
+    ;-XX:MaxHeapSize=222823k, -XX:MaxMetaspaceSize=26214k, -XX:ReservedCodeCacheSize=13107k, -XX:+UseSerialGC, -Xshare:on, -XX:-TieredCompilation
   ]
   :aot :all
   :main dbmgmt)

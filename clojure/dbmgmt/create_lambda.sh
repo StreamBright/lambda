@@ -1,7 +1,7 @@
 aws --profile be-istvan --region eu-central-1 lambda create-function \
   --function-name dbmgmt \
   --role arn:aws:iam::812087793187:role/service-role/lambda-rds-update \
-  --handler dbmgmt \
+  --handler dbmgmt::handler \
   --description "Simple Lambda for RDS changes" \
   --timeout 10 \
   --memory 256 \
