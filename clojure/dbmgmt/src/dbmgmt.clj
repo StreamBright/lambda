@@ -44,6 +44,8 @@
 
 ;; db
 
+;; nil if enything goes sideways
+
 (def db-prod-eu 
   (:eu 
     (:ok 
@@ -92,19 +94,19 @@
   []
   (.getInputArguments (ManagementFactory/getRuntimeMXBean)))
 
+(defn exec 
+  []
+  (println (str "Start time :: " (start-time)))
+  (println (str "Input args :: " (get-input-args)))
+  (println (str "now :: " (.getString (exec-sql) "now"))))
+
 (defn -handleRequest ^String [this in ctx]
   (reify RequestHandler
     (handleRequest ^String [this in ctx]
       (let [logger (.getLogger ctx)]
-        (.log (str "Start time :: " (start-time)))
-        (println (str "Start time :: " (start-time)))
-        (.log (str "Input args :: " (get-input-args)))
-        (println (str "Input args :: " (get-input-args)))
-        (.log logger (str "now :: " (.getString (exec-sql) "now")))
-        (println logger (str "now :: " (.getString (exec-sql) "now"))))
-      "ok")))
+        (.log logger "Hello from logging")
+        (exec)))))
 
-(defn -main [& args]
-  (println (str "Start time :: " (start-time)))
-  (println (str "Input args :: " (get-input-args)))
-  (println (str "now :: " (.getString (exec-sql) "now"))))
+(defn -main 
+  [& args] 
+  (exec))
