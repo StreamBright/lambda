@@ -1,11 +1,13 @@
 aws --profile be-istvan --region eu-central-1 lambda create-function \
   --function-name dbmgmt \
-  --role arn:aws:iam::812087793187:role/service-role/lambda-rds-update \
+  --runtime java8 \
+  --role arn:aws:iam::812087793187:role/lambda-dbmgmt \
   --handler dbmgmt::handler \
   --description "Simple Lambda for RDS changes" \
   --timeout 10 \
   --memory 256 \
-  --runtime java8 \
+  --vpc-config "SubnetIds=subnet-878200fd,subnet-849ce6ec,SecurityGroupIds=sg-a80db5c3" \
+  --kms-key-arn arn:aws:kms:eu-central-1:812087793187:key/05c8687a-0d2d-4e4f-8a5a-5de55ea457b8 \
   --zip-file fileb://./target/dbmgmt-0.1.0-standalone.jar
 
 #   create-function
