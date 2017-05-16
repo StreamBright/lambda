@@ -9,6 +9,7 @@
                                             SQLException Statement ResultSet      ]
     [java.util                              Properties Date                       ]
     [java.io                                File BufferedReader                   ]
+    [java.net                               URLEncoder                            ]
     [java.nio                               ByteBuffer                            ]
     [java.nio.charset                       Charset                               ]
     [com.amazonaws.services.kms             AWSKMS AWSKMSClientBuilder            ]
@@ -61,7 +62,7 @@
   ^String [^PersistentArrayMap hm]
   (str "jdbc:" (:dbtype hm) "://" (:host hm) "/"
        (:dbname hm) "?" "user=" (:user hm)
-       "&" "password=" (:password hm)
+       "&" "password=" (URLEncoder/encode (:password hm) "UTF-8")
        "&" "ssl=" (get-in hm [:ssl] "false")
        "&" "sslfactory=" (get-in hm [:sslfactory] "org.postgresql.ssl.NonValidatingFactory")))
 
@@ -95,7 +96,8 @@
     {:ok
       (get-fst-result
         (execute-query
-          (.createStatement db-connection statement))) }
+          (create-statement db-connection)
+          statement)) }
   (catch Exception e
     {:error "Exception" :fn "exec-sql" :exception (.getMessage e) })))
 
@@ -107,7 +109,6 @@
   []
   (.getInputArguments (ManagementFactory/getRuntimeMXBean)))
 
-(def select-now "SELECT NOW();")
 
 (defn get-kms
   [key-name]
@@ -137,19 +138,35 @@
   [config]
   (cond
     (= config :local)
-      { :ok (parse-edn-string
-              (:ok
-                (read-file (File. "conf/prod.edn")))) }
+      {:ok
+        (parse-edn-string
+          (:ok
+            (read-file (File. "conf/prod.edn")))) }
     (= config :kms)
-      { :ok (get-kms "prod") }
+      {:ok (get-kms "prod")}
     :else
-      { :err :err }))
+      {:err :err}))
 
+(def select-now "SELECT NOW();")
+
+(defn db-helper
+  [db-k-v]
+  (let [  k (first (keys db-k-v))
+          v (get-db-connection (get-in db-k-v [(keyword k)])) ]
+    {k v}))
+
+(defn get-db-connections
+  [databases]
+  (doall (pmap #(db-helper %) (:dbs (:ok (:ok databases))))))
 
 (defn sql-exec
   [config] ; :local or :kms
-  (let [ databases (config-selector config) ]
-    (println databases)))
+  (let [  databases   (config-selector config)
+          connz       (get-db-connections databases)
+          nows-rs     (doall (pmap #(exec-sql (first (vals %)) select-now) connz))
+          now-results (map #(.getString (:ok %) "now") nows-rs) ]
+    (println now-results)
+    (doall (pmap #(.close (first (vals %))) connz))))
 
 (defn -handler
   [s]
@@ -160,4 +177,6 @@
 (defn -main
   [& args]
   (init)
-  (sql-exec :local))
+  (sql-exec :local)
+  (println "Bye...")
+  (System/exit 0))

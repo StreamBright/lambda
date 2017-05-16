@@ -11,6 +11,9 @@
     [org.clojure/data.json                "0.2.6"     ]
     [com.amazonaws/aws-lambda-java-core   "1.1.0"     ]
     [com.amazonaws/aws-lambda-java-log4j  "1.0.0"     ]
+    [com.amazonaws/aws-java-sdk-kms       "1.11.128"  ]
+    [org.clojure/data.json                "0.2.6"     ]
+
   ]
   :jvm-opts [
     "-Xms32m" "-Xmx32m"
