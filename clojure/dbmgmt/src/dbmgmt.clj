@@ -1,24 +1,29 @@
 (ns dbmgmt
-  (:require 
+  (:require
     [clojure.edn          :as     edn    ]
     [clojure.data.json    :as     json   ]
     [clojure.java.io      :as     io     ])
   (:import
-    [clojure.lang                           PersistentHashMap PersistentArrayMap ]
-    [java.sql                               Connection DriverManager 
-                                            SQLException Statement ResultSet     ]
-    [java.util                              Properties Date                      ]
-    [java.io                                File BufferedReader                  ]
-    [java.lang.management                   ManagementFactory  RuntimeMXBean     ])
-  (:gen-class 
+    [clojure.lang                           PersistentHashMap PersistentArrayMap  ]
+    [java.sql                               Connection DriverManager
+                                            SQLException Statement ResultSet      ]
+    [java.util                              Properties Date                       ]
+    [java.io                                File BufferedReader                   ]
+    [java.nio                               ByteBuffer                            ]
+    [java.nio.charset                       Charset                               ]
+    [com.amazonaws.services.kms             AWSKMS AWSKMSClientBuilder            ]
+    [com.amazonaws.services.kms.model       DecryptRequest                        ]
+    [com.amazonaws.services.lambda.runtime  Context                               ]
+    [com.amazonaws.util                     Base64                                ]
+    [java.lang.management                   ManagementFactory  RuntimeMXBean      ])
+  (:gen-class
     :methods [^:static [handler [String] String]]))
-
 
 ;; misc
 
 (defn system-properties
   "Returns system-properties as a hashmap {}"
-  ^PersistentHashMap [] 
+  ^PersistentHashMap []
   (reduce (fn [x [y z]] (assoc x y z)) {} (System/getProperties)))
 
 (defn read-file
@@ -45,26 +50,30 @@
 
 ;; nil if enything goes sideways
 
-(def db-prod-eu 
-  (:eu 
-    (:ok 
-      (parse-edn-string 
-        (:ok 
-          (read-file (File. "conf/prod.edn")))))))
+; (def db-prod-eu
+;   (:eu
+;     (:ok
+;       (parse-edn-string
+;         (:ok
+;           (read-file (File. "conf/prod.edn")))))))
 
-(defn get-jdbc-url 
-  ^String [^PersistentArrayMap hm] 
-  (str "jdbc:" (:dbtype hm) "://" (:host hm) "/" 
-       (:dbname hm) "?" "user=" (:user hm) 
-       "&" "password=" (:password hm) 
+(defn get-jdbc-url
+  ^String [^PersistentArrayMap hm]
+  (str "jdbc:" (:dbtype hm) "://" (:host hm) "/"
+       (:dbname hm) "?" "user=" (:user hm)
+       "&" "password=" (:password hm)
        "&" "ssl=" (get-in hm [:ssl] "false")
        "&" "sslfactory=" (get-in hm [:sslfactory] "org.postgresql.ssl.NonValidatingFactory")))
 
-(defn connect-to-db 
+(defn disconnect-from-db
+  [^Connection db-connection]
+  (.close db-connection))
+
+(defn connect-to-db
   ^Connection [^String dburl]
   (DriverManager/getConnection dburl))
 
-(defn create-statement 
+(defn create-statement
   ^Statement [^Connection dbconn]
   (.createStatement dbconn))
 
@@ -76,18 +85,21 @@
   [^ResultSet res]
   (if (.next res) res :err))
 
-(defn exec-sql 
-  []
-  (try 
-    {:ok 
-      (get-fst-result 
+(defn get-db-connection
+  [db]
+  (connect-to-db (get-jdbc-url db)))
+
+(defn exec-sql
+  [db-connection statement]
+  (try
+    {:ok
+      (get-fst-result
         (execute-query
-          (.createStatement (connect-to-db (get-jdbc-url db-prod-eu)))
-          "SELECT NOW();")) }
+          (.createStatement db-connection statement))) }
   (catch Exception e
     {:error "Exception" :fn "exec-sql" :exception (.getMessage e) })))
 
-(defn start-time 
+(defn start-time
   ^Date []
   (Date. (.getStartTime (ManagementFactory/getRuntimeMXBean))))
 
@@ -95,22 +107,57 @@
   []
   (.getInputArguments (ManagementFactory/getRuntimeMXBean)))
 
-(defn exec 
-  []
-  (let [sql-ret (exec-sql)]
-    (println (str "Start time :: " (start-time)))
-    (println (str "Input args :: " (get-input-args)))
-    (cond
-      (contains? sql-ret :ok)
-        (println (str "now :: " (.getString (:ok (exec-sql)) "now")))
-    :else
-      (println (str "Error while executing SQL :: " sql-ret)))))
+(def select-now "SELECT NOW();")
 
-(defn -handler 
+(defn get-kms
+  [key-name]
+  (println key-name)
+  (let [
+        ^bytes          encryptedKey  (Base64/decode
+                                        (System/getenv key-name))
+        ^AWSKMS         client        (AWSKMSClientBuilder/defaultClient)
+        ^DecryptRequest request       (.withCiphertextBlob
+                                        (DecryptRequest.)
+                                        (ByteBuffer/wrap encryptedKey))
+        ^ByteBuffer     plainTextKey  (.getPlaintext
+                                        (.decrypt client request))
+        ^String         ret           (String.
+                                        (.array plainTextKey) (Charset/forName "UTF-8"))
+        ]
+    ret))
+
+; (fv [param] body)
+
+(defn init
+  []
+  (println (str "Start time :: " (start-time)))
+  (println (str "Input args :: " (get-input-args))))
+
+(defn config-selector
+  [config]
+  (cond
+    (= config :local)
+      { :ok (parse-edn-string
+              (:ok
+                (read-file (File. "conf/prod.edn")))) }
+    (= config :kms)
+      { :ok (get-kms "prod") }
+    :else
+      { :err :err }))
+
+
+(defn sql-exec
+  [config] ; :local or :kms
+  (let [ databases (config-selector config) ]
+    (println databases)))
+
+(defn -handler
   [s]
-  (exec)
+  (init)
+  (sql-exec :kms)
   s)
 
-(defn -main 
-  [& args] 
-  (exec))
+(defn -main
+  [& args]
+  (init)
+  (sql-exec :local))
