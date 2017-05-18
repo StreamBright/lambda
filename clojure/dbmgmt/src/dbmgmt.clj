@@ -28,7 +28,7 @@
   (reduce (fn [x [y z]] (assoc x y z)) {} (System/getProperties)))
 
 (defn read-file
-  "Returns {:ok string } or {:error...}"
+  "returns {:ok string } or {:error...}"
   ^PersistentArrayMap [^File file]
   (try
     (cond
@@ -90,6 +90,9 @@
   [db]
   (connect-to-db (get-jdbc-url db)))
 
+
+;;;; needs to be rewritten
+
 (defn exec-sql
   [db-connection statement]
   (try
@@ -112,38 +115,40 @@
 
 (defn get-kms
   [key-name]
-  (println key-name)
+  (println (str "get-kms :: " key-name))
   (let [
-        ^bytes          encryptedKey  (Base64/decode
-                                        (System/getenv key-name))
+
+                        encryptedKey  (Base64/decode (System/getenv key-name))
+                        _             (println encryptedKey)
         ^AWSKMS         client        (AWSKMSClientBuilder/defaultClient)
-        ^DecryptRequest request       (.withCiphertextBlob
-                                        (DecryptRequest.)
-                                        (ByteBuffer/wrap encryptedKey))
-        ^ByteBuffer     plainTextKey  (.getPlaintext
-                                        (.decrypt client request))
-        ^String         ret           (String.
-                                        (.array plainTextKey) (Charset/forName "UTF-8"))
+                        _             (println client)
+        ^DecryptRequest request       (.withCiphertextBlob (DecryptRequest.) (ByteBuffer/wrap encryptedKey))
+                        _             (println request)
+        ^ByteBuffer     plainTextKey  (.getPlaintext (.decrypt client request))
+        ^String         ret           (String. (.array plainTextKey) (Charset/forName "UTF-8"))
+                        _             (println (str "ret :: " ret))
         ]
     ret))
 
-; (fv [param] body)
-
-(defn init
-  []
-  (println (str "Start time :: " (start-time)))
-  (println (str "Input args :: " (get-input-args))))
+(defn get-edn-env
+  [key-name]
+  (edn/read-string (String. (Base64/decode (System/getenv key-name)))))
 
 (defn config-selector
-  [config]
+  "Works only with edn format either raw or base64 encoded"
+  [config-type config-key]
+  (println (str "Config selector :: " config-type " :: " config-key))
   (cond
-    (= config :local)
+    (= config-type :local)
       {:ok
-        (parse-edn-string
-          (:ok
-            (read-file (File. "conf/prod.edn")))) }
-    (= config :kms)
-      {:ok (get-kms "prod")}
+        (:ok
+          (parse-edn-string
+            (:ok
+              (read-file (File. (str "conf/" config-key ".edn")))))) } ; raw edn
+    (= config-type :kms)
+      {:ok (get-kms config-key)} ; base64 encoded edn? (not used due to AWS limitations)
+    (= config-type :env)
+      {:ok (get-edn-env config-key)} ; base64 encoded edn
     :else
       {:err :err}))
 
@@ -157,25 +162,33 @@
 
 (defn get-db-connections
   [databases]
-  (doall (pmap #(db-helper %) (:dbs (:ok (:ok databases))))))
+  (map #(db-helper %) (:ok databases)))
 
 (defn sql-exec
-  [config] ; :local or :kms
-  (let [  databases   (config-selector config)
+  [config-type config-key] ; [:local|:kms|:env "eu_central_1"]
+  (let [  databases   (config-selector config-type config-key)
           connz       (get-db-connections databases)
-          nows-rs     (doall (pmap #(exec-sql (first (vals %)) select-now) connz))
+          nows-rs     (map #(exec-sql (first (vals %)) select-now) connz)
           now-results (map #(.getString (:ok %) "now") nows-rs) ]
     (println now-results)
-    (doall (pmap #(.close (first (vals %))) connz))))
+    (map #(.close (first (vals %))) connz)))
+
+(defn init
+  []
+  (println (str "Start time :: " (start-time)))
+  (println (str "Input args :: " (get-input-args))))
 
 (defn -handler
   [s]
+  (println "Handler :: start...")
   (init)
-  (sql-exec :kms)
-  s)
+  (let [region (System/getenv "region")]
+    (sql-exec :env region)
+    s))
 
 (defn -main
   [& args]
+  (println "Main :: start...")
   (init)
   (sql-exec :local)
   (println "Bye...")
